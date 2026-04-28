@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: macos-latest
 
     steps:
       - uses: actions/checkout@v5
@@ -43,20 +43,39 @@ jobs:
           exclude_inputs: create_release
 
       - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y rsync
+        run: brew install make ldid dpkg
 
-      - name: Install theos-jailed dependencies
-        if: ${{ inputs.create_release }}
+      - name: Set PATH environment variable
         run: |
-          sudo apt update
-          sudo apt install -y build-essential checkinstall git autoconf automake libtool-bin llvm xmlstarlet
-          curl -L https://github.com/libimobiledevice/libplist/releases/download/2.6.0/libplist-2.6.0.tar.bz2 | bzip2 -d | tar -x
-          cd libplist*
-          ./configure
-          sudo make install
-          sudo ldconfig
+          echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
+          echo "THEOS=${{ github.workspace }}/theos" >> $GITHUB_ENV
+
+      - name: Cache Theos
+        id: theos
+        uses: actions/cache@v5
+        env:
+          cache-name: theos_cache
+        with:
+          path: theos/
+          key: ${{ env.cache-name }}
+          restore-keys: ${{ env.cache-name }}
+
+      - name: Setup Theos
+        if: steps.theos.outputs.cache-hit != 'true'
+        uses: actions/checkout@v5
+        with:
+          repository: theos/theos
+          path: theos
+          submodules: recursive
+
+      - name: Download iOS SDK
+        if: steps.theos.outputs.cache-hit != 'true'
+        run: |
+          git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/theos/sdks/
+          cd sdks
+          git sparse-checkout set --no-cone iPhoneOS16.5.sdk
+          git checkout
+          mv *.sdk $THEOS/sdks
 
       - name: Download IPA (Auto)
         if: ${{ inputs.create_release && !inputs.ipa_url }}
@@ -82,15 +101,8 @@ jobs:
         id: ipa_info
         run: |
           info=$(unzip -p "${{ github.workspace }}/App.ipa" Payload/*.app/Info.plist)
-          echo "bundle-id=$(echo $info | xmlstarlet sel -t -v "/plist/dict/key[text()=\"CFBundleIdentifier\"]/following-sibling::*[1]/text()")" >> $GITHUB_OUTPUT
-          echo "version=$(echo $info | xmlstarlet sel -t -v "/plist/dict/key[text()=\"CFBundleShortVersionString\"]/following-sibling::*[1]/text()")" >> $GITHUB_OUTPUT
-
-      - name: Setup theos
-        uses: level3tjg/theos-action@main
-        with:
-          cache: true
-          cache-dir-theos: ${{ github.workspace }}/theos
-          cache-dir-sdks: ${{ github.workspace }}/theos/sdks
+          echo "bundle-id=$(plutil -extract CFBundleIdentifier raw -o - - <<< "$info")" >> $GITHUB_OUTPUT
+          echo "version=$(plutil -extract CFBundleShortVersionString raw -o - - <<< "$info")" >> $GITHUB_OUTPUT
 
       - name: Checkout theos-jailed
         if: ${{ inputs.create_release }}
@@ -102,8 +114,7 @@ jobs:
 
       - name: Install theos-jailed
         if: ${{ inputs.create_release }}
-        run: |
-          ./theos-jailed/install
+        run: ./theos-jailed/install
 
       - name: Build rootless deb
         run: make package
@@ -149,7 +160,7 @@ jobs:
       - name: Download ipapatch
         if: ${{ inputs.create_release }}
         run: |
-          curl -L https://github.com/asdfzxcvbn/ipapatch/releases/latest/download/ipapatch-linux-amd64 \
+          curl -L https://github.com/asdfzxcvbn/ipapatch/releases/latest/download/ipapatch-darwin-arm64 \
             -o ipapatch
           chmod +x ipapatch
 
@@ -163,7 +174,7 @@ jobs:
         id: hash_files
         run: |
           echo 'hashes<<EOF' >> $GITHUB_OUTPUT
-          echo "$(sha256sum packages/*)" >> $GITHUB_OUTPUT
+          echo "$(shasum -a 256 packages/*)" >> $GITHUB_OUTPUT
           echo 'EOF' >> $GITHUB_OUTPUT
 
       - name: Upload artifacts
