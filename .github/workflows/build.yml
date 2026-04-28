@@ -146,6 +146,19 @@ jobs:
           rm "$IPA_IN"
           mv "$IPA_OUT" "$IPA_IN"
 
+      - name: Download ipapatch
+        if: ${{ inputs.create_release }}
+        run: |
+          curl -L https://github.com/asdfzxcvbn/ipapatch/releases/latest/download/ipapatch-linux-amd64 \
+            -o ipapatch
+          chmod +x ipapatch
+
+      - name: Patch IPA with ipapatch
+        if: ${{ inputs.create_release }}
+        run: |
+          IPA=$(ls packages/*.ipa)
+          ./ipapatch --input "$IPA" --inplace --noconfirm
+
       - name: Hash release files
         id: hash_files
         run: |
