@@ -149,7 +149,7 @@ jobs:
       - name: Download ipapatch
         if: ${{ inputs.create_release }}
         run: |
-          curl -L https://github.com/asdfzxcvbn/ipapatch/releases/latest/download/ipapatch-linux-amd64 \
+          curl -L https://github.com/asdfzxcvbn/ipapatch/releases/latest/download/ipapatch.linux-amd64 \
             -o ipapatch
           chmod +x ipapatch
 
