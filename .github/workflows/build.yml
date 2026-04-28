@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -94,7 +94,7 @@ jobs:
 
       - name: Checkout theos-jailed
         if: ${{ inputs.create_release }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: level3tjg/theos-jailed
           path: theos-jailed
@@ -167,7 +167,7 @@ jobs:
           echo 'EOF' >> $GITHUB_OUTPUT
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.package_info.outputs.id }}_${{ steps.package_info.outputs.version }}
           path: packages/*
