@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: ubuntu-22.04
 
     steps:
       - uses: actions/checkout@v5
@@ -43,39 +43,20 @@ jobs:
           exclude_inputs: create_release
 
       - name: Install dependencies
-        run: brew install make ldid dpkg
-
-      - name: Set PATH environment variable
         run: |
-          echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
-          echo "THEOS=${{ github.workspace }}/theos" >> $GITHUB_ENV
+          sudo apt update
+          sudo apt install -y rsync
 
-      - name: Cache Theos
-        id: theos
-        uses: actions/cache@v5
-        env:
-          cache-name: theos_cache
-        with:
-          path: theos/
-          key: ${{ env.cache-name }}
-          restore-keys: ${{ env.cache-name }}
-
-      - name: Setup Theos
-        if: steps.theos.outputs.cache-hit != 'true'
-        uses: actions/checkout@v5
-        with:
-          repository: theos/theos
-          path: theos
-          submodules: recursive
-
-      - name: Download iOS SDK
-        if: steps.theos.outputs.cache-hit != 'true'
+      - name: Install theos-jailed dependencies
+        if: ${{ inputs.create_release }}
         run: |
-          git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/theos/sdks/
-          cd sdks
-          git sparse-checkout set --no-cone iPhoneOS16.5.sdk
-          git checkout
-          mv *.sdk $THEOS/sdks
+          sudo apt update
+          sudo apt install -y build-essential checkinstall git autoconf automake libtool-bin llvm xmlstarlet
+          curl -L https://github.com/libimobiledevice/libplist/releases/download/2.6.0/libplist-2.6.0.tar.bz2 | bzip2 -d | tar -x
+          cd libplist*
+          ./configure
+          sudo make install
+          sudo ldconfig
 
       - name: Download IPA (Auto)
         if: ${{ inputs.create_release && !inputs.ipa_url }}
@@ -101,8 +82,15 @@ jobs:
         id: ipa_info
         run: |
           info=$(unzip -p "${{ github.workspace }}/App.ipa" Payload/*.app/Info.plist)
-          echo "bundle-id=$(plutil -extract CFBundleIdentifier raw -o - - <<< "$info")" >> $GITHUB_OUTPUT
-          echo "version=$(plutil -extract CFBundleShortVersionString raw -o - - <<< "$info")" >> $GITHUB_OUTPUT
+          echo "bundle-id=$(echo $info | xmlstarlet sel -t -v "/plist/dict/key[text()=\"CFBundleIdentifier\"]/following-sibling::*[1]/text()")" >> $GITHUB_OUTPUT
+          echo "version=$(echo $info | xmlstarlet sel -t -v "/plist/dict/key[text()=\"CFBundleShortVersionString\"]/following-sibling::*[1]/text()")" >> $GITHUB_OUTPUT
+
+      - name: Setup theos
+        uses: level3tjg/theos-action@main
+        with:
+          cache: true
+          cache-dir-theos: ${{ github.workspace }}/theos
+          cache-dir-sdks: ${{ github.workspace }}/theos/sdks
 
       - name: Checkout theos-jailed
         if: ${{ inputs.create_release }}
@@ -112,21 +100,10 @@ jobs:
           path: theos-jailed
           submodules: recursive
 
-      - name: Build and install insert_dylib
-        if: ${{ inputs.create_release }}
-        run: |
-          git clone --quiet --depth=1 https://github.com/tyilo/insert_dylib
-          cd insert_dylib
-          xcodebuild -project insert_dylib.xcodeproj -scheme insert_dylib \
-            -configuration Release \
-            SYMROOT="$(pwd)/build" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" 2>&1 | tail -5
-          sudo cp build/Release/insert_dylib /usr/local/bin/insert_dylib
-
       - name: Install theos-jailed
         if: ${{ inputs.create_release }}
-        run: ./theos-jailed/install
+        run: |
+          ./theos-jailed/install
 
       - name: Build rootless deb
         run: make package
@@ -172,7 +149,7 @@ jobs:
       - name: Download ipapatch
         if: ${{ inputs.create_release }}
         run: |
-          curl -L https://github.com/asdfzxcvbn/ipapatch/releases/latest/download/ipapatch-darwin-arm64 \
+          curl -L https://github.com/asdfzxcvbn/ipapatch/releases/latest/download/ipapatch-linux-amd64 \
             -o ipapatch
           chmod +x ipapatch
 
@@ -186,7 +163,7 @@ jobs:
         id: hash_files
         run: |
           echo 'hashes<<EOF' >> $GITHUB_OUTPUT
-          echo "$(shasum -a 256 packages/*)" >> $GITHUB_OUTPUT
+          echo "$(sha256sum packages/*)" >> $GITHUB_OUTPUT
           echo 'EOF' >> $GITHUB_OUTPUT
 
       - name: Upload artifacts
